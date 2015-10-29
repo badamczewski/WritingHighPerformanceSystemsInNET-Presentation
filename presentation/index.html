@@ -1,0 +1,673 @@
+﻿<!doctype html>
+<html lang="en">
+
+	<head>
+		<meta charset="utf-8">
+
+		<title>Writing high performance systems in .NET</title>
+		<meta name="description" content="Writing high performance systems in .NET">
+		<meta name="author" content="Bartosz Adamczewski">
+
+		<meta name="apple-mobile-web-app-capable" content="yes" />
+		<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+		<link rel="stylesheet" href="css/reveal.min.css">
+		<link rel="stylesheet" href="css/theme/sky.css" id="theme">
+
+		<!-- For syntax highlighting -->
+		<link rel="stylesheet" href="lib/css/zenburn.css">
+
+		<!-- If the query includes 'print-pdf', use the PDF print sheet -->
+		<script>
+			document.write( '<link rel="stylesheet" href="css/print/' + ( window.location.search.match( /print-pdf/gi ) ? 'pdf' : 'paper' ) + '.css" type="text/css" media="print">' );
+		</script>
+
+		<!--[if lt IE 9]>
+		<script src="lib/js/html5shiv.js"></script>
+		<![endif]-->
+	</head>
+
+	<body>
+		<div class="reveal">
+			<!-- Any section element inside of this container is displayed as a slide -->
+			<div class="slides">
+				<section>
+					<h1 style="font-size: 1.45em;">Writing high performance systems in .NET</h1>
+					<!--<h3 style="text-shadow: 0px 0px 6px rgba(0, 0, 0, 0.2);">And cache friendly code</h3>-->
+					<p></p>
+					<p>Bartosz Adamczewski</p>
+					<p>
+						<a href="https://twitter.com/badamczewski01">@badamczewski01</a>
+					</p>
+				</section>
+				<section>
+					<h2>Real title of talk</h2>
+					<h3>performance<h3>
+					<img src="img\likeaboss.jpg" />
+				</section>
+				<section>
+					<h2>Outline</h2>
+					<ul>
+						<li><a href="#/slow-code">Performance problems</a></li>
+						<li><a href="#/allocations">Allocations</a></li>
+						<li><a href="#/cpu">CPU Pauses</a></li>
+						<li><a href="#/crazy">Crazy Stuff</a></li>
+						<li><a href="#/credits">Credits</a></li>
+					</ul>
+				</section>
+				<section id="slow-code">
+					<section>
+						<h2>Performance problems</h2>
+					</section>
+					<section>
+						<h2>Let me start by citing:</h2>
+						<p>"Performance is easy, you just need to know everything"</p>	
+						<p style="float:right">- S. Kuksenko</p>
+					</section>
+					<section>
+                        <h2>Performance problems?</h2>
+						<img src="img/perofrmance_problems.png"/>
+                    </section>
+                    <section>
+                        <h2>Performance problems:</h2>
+                        <ul>
+                            <li class="fragment">Allocations</li>
+                            <li class="fragment">CPU Pauses</li>
+							<li class="fragment">CPU Overloads (bad code)</li>
+                        </ul>
+                    </section>
+				</section>
+                <section id="allocations">
+                    <section>
+                        <h2>Allocations</h2>
+                    </section>
+					<section>
+						<h2>Whats wrong with this code?</h2>
+                        <pre><code data-trim>
+var data = GetData(10);
+foreach (var d in data) { Console.WriteLine("value {0}", d); }
+
+public IEnumerable&lt;int> GetData(object greatherThan) 
+{
+    return new List&lt;int>() { 10, 20 }.Where(x => x &gt; (int)greatherThan);
+}</code></pre>						
+					</section>
+					<section>
+						<h2>Memory</h2>
+						<img src="img/memory.png"/>
+					</section>
+                    <section>
+                        <h2>Boxing</h2>
+                        <p>Take a piece of stack memory and promote it to the heap</p>
+                        <pre><code data-trim>
+int box = 10;
+object obj = box;
+box++;
+Console.WriteLine(obj);
+						</code></pre>
+                    </section>
+					<section>
+                        <h2>Boxing</h2>
+						<p>IL</p>
+                        <img src="img/boxil.png"/>
+                    </section>
+					<section>
+                        <h2>Boxing</h2>
+						<p>Memory dump</p>
+						<img src="img/boxmem.png"/>
+                    </section>
+                    <section>
+                        <h2>Hidden Boxing</h2>
+                        <p>So this happens often</p>
+                        <pre><code data-trim>
+int box = 10;
+Console.WriteLine("OHAI I Just Boxed {0}", box);
+						</code></pre>
+						<div class="fragment">
+						<p class="">because:</p>
+						<p class="">call void [mscorlib]System.Console::WriteLine(string, object)</p>
+					    </div>
+                    </section>
+					<section>
+                        <h2>Hidden Boxing - Fix</h2>
+                        <pre><code data-trim>
+int box = 10;
+Console.WriteLine("OHAI I Just Boxed {0}", box.ToString());
+						</code></pre>
+						<div class="fragment">
+						<p class="">because:</p>
+						<p class="">call void [mscorlib]System.Console::WriteLine(string, object)</p>
+					    </div>
+                    </section>
+					<section>
+                        <h2>Moar Hidden Boxing</h2>
+                        <pre><code data-trim>
+public void Process()
+{
+    var data = GetData();
+    foreach(var d in data)
+    {
+        Console.WriteLine(d);
+    }
+}
+
+public IEnumerable&lt;int> GetData()
+{
+    return new List&lt;int>() { 10 };
+}</code></pre>
+                    </section>
+					<section>
+                        <h2>Moar Hidden Boxing</h2>
+						<p>Memory dump</p>
+						<img src="img/listbox.png"/>
+                    </section>
+					<section>
+                        <h2>Moar Hidden Boxing</h2>
+						<img src="img/listboxwhy.png"/>
+                    </section>
+					<section>
+                        <h2>Moar Hidden Boxing</h2>
+						<p>Because:</p>
+						<pre><code data-trim>
+// Summary:
+//     Enumerates the elements of a System.Collections.Generic.List&lt;T>.
+[Serializable]
+public struct Enumerator : IEnumerator&lt;T>, IDisposable, IEnumerator
+{
+    public T Current { get; }
+    public void Dispose();
+    public bool MoveNext();
+}               
+                    </code></pre>
+                    </section>
+				    <section>
+                        <h2>Moar Hidden Boxing - Fix</h2>
+						<p>Don't loose type information</p>
+						<pre><code data-trim>
+public void Process()
+{
+    var data = GetData();
+    foreach(var d in data)
+    {
+        Console.WriteLine(d);
+    }
+}
+
+public List&lt;int> GetData() //HERE!
+{
+    return new List&lt;int>() { 10 };
+}
+                    </code></pre>
+                    </section>
+					<section>
+                        <h2>Hidden Allocations</h2>
+                        <pre><code data-trim>
+int box = 10;
+Func&lt;int, int> f = (x) => x;
+f(box);
+						</code></pre>
+                    </section>
+					<section>
+                        <h2>Hidden Allocations</h2>
+                        <p>Not so bad</p>
+                        <pre><code style="max-height:500px;" data-trim>
+[CompilerGenerated]
+private static Func&lt;int, int> CS$&lt;>9__CachedAnonymousMethodDelegate1;
+private static void Main(string[] args)
+{
+	int box = 10;
+	if (Program.CS$&lt;>9__CachedAnonymousMethodDelegate1 == null)
+	{
+		Program.CS$&lt;>9__CachedAnonymousMethodDelegate1 = new Func&lt;int, int>(Program.&lt;Main>b__0);
+	}
+	Func&lt;int, int> f = Program.CS$&lt;>9__CachedAnonymousMethodDelegate1;
+	f(box);
+	Console.ReadKey();
+}
+[CompilerGenerated]
+private static int &lt;Main>b__0(int x)
+{
+	return x;
+}
+						</code></pre>
+                    </section>
+					<section>
+                        <h2>Hidden Allocations</h2>
+                        <p>How about now?</p>
+                        <pre><code data-trim>
+int box = 10;
+Func&lt;int, int> f = (x) => box + x;
+f(box);
+						</code></pre>
+                    </section>
+					<section>
+                        <h2>Hidden Allocations</h2>
+						<p>Bad</p>
+                        <pre><code style="max-height:500px;" data-trim>
+[CompilerGenerated]
+private sealed class &lt;>c__DisplayClass1
+{
+	public int box;
+	public int &lt;Main>b__0(int x)
+	{
+		return this.box + x;
+	}
+}
+private static void Main(string[] args)
+{
+	Program.&lt;>c__DisplayClass1 &lt;>c__DisplayClass = new Program.&lt;>c__DisplayClass1();
+	&lt;>c__DisplayClass.box = 10;
+	Func&lt;int, int> f = new Func&lt;int, int>(&lt;>c__DisplayClass.&lt;Main>b__0);
+	f(&lt;>c__DisplayClass.box);
+	Console.ReadKey();
+}
+						</code></pre>
+                    </section>
+					<section>
+                        <h2>Hidden Allocations</h2>
+                        <p>Let's combine bad ideas</p>
+                        <pre><code data-trim>
+public static int Find(int number)
+{
+    return new List&lt;int>() { 10, 20 }.Where(x => x &gt; number).FirstOrDefault();
+}
+
+Find(10);
+						</code></pre>
+                    </section>
+					<section>
+                        <h2>Hidden Allocations</h2>
+ 						<img src="img/allocations_mem.png"/>
+                    </section>
+					<section>
+                        <h2>Hidden Allocations - Fix</h2>
+                        <p>Look MA! Zero allocations</p>
+                        <pre><code data-trim>
+public static int Find(int number)
+{
+    var list =  new List<int>() {10, 20};
+    foreach(int i in list)
+    {
+        if(i > number)
+            return i;
+    }
+
+    return default(int);
+}
+						</code></pre>
+                    </section>
+					<section>
+							<h2>Hidden Allocations - Fix</h2>
+							<p>Look MA! Zero allocations</p>
+							<img src="img/allocations_fixed_mem.png"/>
+					</section>
+					<section>
+							<h2>Non Continuous<h2>
+							<h2>Allocations</h2>
+                        <pre><code data-trim>
+string[] texts = new string[10];
+texts[0] = "Hello";
+
+string[] lyrics = new string[10];
+lyrics[0] = "YoYo!";
+
+texts[1] = "World";
+						</code></pre>
+					</section>
+					<section>
+							<h2>Non Continuous<h2>
+							<h2>Allocations</h2>
+							<img src="img/non_continuous_allocs.png"/>
+					</section>
+                </section>
+				<section id="cpu">
+					<section><h2>CPU Pauses</h2></section>
+					<section>
+						<h2>processor</h2>
+						<img src="img/processor.png"/> 
+					</section>
+					<section>
+						<h2>cache(s)</h2>
+						<ul>
+							<li class="fragment">L1 instruction cache I$</li>
+							<li class="fragment">L1 data cache D$</li>
+							<li class="fragment">L2/3 data cache D$</li>		
+							<li class="fragment">translation lookaside buffer (TLB)</li>				
+						</ul>							
+					</section>
+					<section>
+						<h2>latencies</h2>
+						<img src="img/cache_latency.png"/>
+					</section>
+					<section>
+						<h2>L cache</h2>
+						<img src="img/cache.png"/>
+						<ul>
+							<li class="fragment">cache is just a tag-hash-map</li>
+							<li class="fragment">processors read data in units (cache lines)</li>		
+							<li class="fragment">processors can detect cache patterns and prefetch lines</li>				
+						</ul>							
+					</section>
+					<section>
+						<h2>Cache trashing</h2>
+						<pre><code data-trim>
+int n = 10000;
+int m = 10000;
+int[,] tab = new int[n, m];
+
+for (int i = 0; i < n; i++) 
+{
+    for (int j = 0; j < m; j++) 
+    {
+        tab[j, i] = 1; //WE ORDER FROM 'j' to 'i'
+    }
+}
+						</code></pre>
+					</section>
+					<section>
+						<h2>Cache utilisation</h2>
+						<img src="img\cache_pref_slow.png"/>
+					</section>
+					<section>
+						<h2>Cache trashing - fix</h2>
+						<pre><code data-trim>
+int n = 10000;
+int m = 10000;
+int[,] tab = new int[n, m];
+
+for (int i = 0; i < n; i++) 
+{
+    for (int j = 0; j < m; j++) 
+    {
+        tab[i, j] = 1; //WE ORDER FROM 'i' to 'j'
+    }
+}
+						</code></pre>
+					</section>
+					<section>
+						<h2>Cache utilisation</h2>
+						<img src="img\cache_pref_fast.png"/>
+					</section>
+					<section>
+						<h2>Sharing</h2>
+						<pre><code data-trim>					
+Calculation c = new Calculation();
+c.isWorking = true;
+....
+Thread t1 = new Thread(() => { Thread.Sleep(1000); c.isWorking = false; });
+t1.Start();
+
+Thread t2 = new Thread(() =>
+{
+    while (c.isWorking == true)
+    { /*Implement some kind of backoff here.*/  }
+	
+    Console.WriteLine("Working now!");
+});
+t2.Start();
+						</code></pre>
+					</section>
+					<section>
+						<h2>Sharing - Optimization Fix</h2>
+						<pre><code data-trim>					
+Calculation c = new Calculation();
+c.isWorking = true;
+....
+Thread t1 = new Thread(() => { Thread.Sleep(1000); c.isWorking = false; });
+t1.Start();
+
+Thread t2 = new Thread(() =>
+{
+    while (true)
+    {
+        if (c.isWorking == false)
+        {
+            Console.WriteLine("Working now!");
+        }
+    }
+});
+t2.Start();
+						</code></pre>
+					</section>
+					<section>
+						<h2>Sharing - Visibility Fix</h2>
+						<pre><code data-trim>					
+Calculation c = new Calculation();
+c.isWorking = 1;
+....
+Thread t1 = new Thread(() => { 
+    Thread.Sleep(1000); Interlocked.Exchange(ref c.isWorking, 0); });
+t1.Start();
+
+Thread t2 = new Thread(() =>
+{
+    while (true)
+    {
+        if (c.isWorking == 0)
+        {
+            Console.WriteLine("Working now!");
+        }
+    }
+});
+t2.Start();
+						</code></pre>
+					</section>
+					<section>
+						<h2>False Sharing</h2>
+						<pre><code data-trim>
+public static int[] counters = new int[...];
+...
+Thread[] workers = new Thread[4];
+for (int i = 0; i < workers.Length; i++)
+{
+    int n = i;
+
+    workers[i] = new Thread(new ThreadStart(() => {
+        for (int k = 0; k < 100000000; k++) {
+            counters[n] = counters[n] + 1;
+        }
+    }));
+}
+						</code></pre>
+					</section>
+					<section>
+						<h2>False Sharing</h2>
+						<img src="img/false_sharing.png"/>
+					</section>
+					<section>
+						<h2>False Sharing - Fix</h2> 
+						<p>Each thread has it's own cache line.</p>
+						<pre><code data-trim>
+public static int[] counters = new int[...];
+...
+Thread[] workers = new Thread[4];
+for (int i = 0; i < workers.Length; i++)
+{
+    int n = i;
+
+    workers[i] = new Thread(new ThreadStart(() => {
+        for (int k = 0; k < 100000000; k++) {
+            counters[n * 16] = counters[n * 16] + 1;
+        }
+    }));
+}
+						</code></pre>
+					</section>
+					
+					<section>
+						<h2>Moar (Hidden) False Sharing</h2>
+						<p>Yes it's the same code as before.</p>						
+						<pre><code data-trim>
+public static int[] counters = new int[...];
+...
+Thread[] workers = new Thread[4];
+for (int i = 0; i < workers.Length; i++)
+{
+    int n = i;
+
+    workers[i] = new Thread(new ThreadStart(() => {
+        for (int k = 0; k < 100000000; k++) {
+            counters[n * 16] = counters[n * 16] + 1;
+        }
+    }));
+}
+						</code></pre>
+					</section>
+					<section>
+						<h2>Moar (Hidden) False Sharing</h2>
+						<img src="img/false_sharing_runtime.png"/>
+					</section>
+					<section>
+						<h2>Moar (Hidden) False Sharing - Fix</h2> 
+						<pre><code data-trim>
+public static int[] counters = new int[...];
+...
+Thread[] workers = new Thread[4];
+for (int i = 0; i < workers.Length; i++)
+{
+    int n = i + 1;
+
+    workers[i] = new Thread(new ThreadStart(() => {
+        for (int k = 0; k < 100000000; k++) {
+            counters[n * 16] = counters[n * 16] + 1;
+        }
+    }));
+}
+						</code></pre>
+					</section>
+					</section>
+					<section id="crazy">
+					<section>
+						<h2>Crazy Stuff</h2>
+						<img src="img/vader.jpg"/>
+					</section>
+					<section>
+						<h2>stack allocation</h2>
+						<p>Fisrst calculate locally then publish globally</p>
+						<code><pre>
+int* ptr = stackalloc int[10000];
+
+for (int k = 0; k < 10000; k++)
+{
+    ptr = ptr + 1;
+   *ptr = *ptr + 1;
+}
+           </code></pre>			
+					</section>
+					<section>
+						<h2>fixed heap allocation</h2>
+						<p>Don't let gc move it</p>
+						<code><pre>			
+var h = GCHandle.Alloc(p.arr, GCHandleType.Pinned);
+int[] a = (int[])h.Target;
+
+for (int k = 0; k < 10000; k++) {
+    a[k] = a[k] + 1;
+}                            
+						</code></pre>			
+					</section>
+					<section>
+						<h2>fixed heap allocation (with pointers)</h2>
+						<p>More direct memory access to heap</p>
+						<code><pre>			
+var h = GCHandle.Alloc(p.arr, GCHandleType.Pinned);
+
+unsafe {
+    int* ptr = (int*)h.AddrOfPinnedObject();
+    for (int k = 0; k < 10000; k++)
+    {
+        ptr = ptr + (1);
+       *ptr = *ptr + 1;
+    }
+}
+						</code></pre>			
+					</section>
+					<section>
+						<h2>off heap allocation</h2>
+						<p>Allocate a unmanaged mem pool and use it</p>
+						<code><pre>			
+public static unsafe byte* global;
+...
+unsafe { global = Unsafe.Allocate(65536); } //this uses VirtualAllocEX
+...
+unsafe {
+    int* ptr = (int*)(global);
+    for (int k = 0; k < 10000; k++) {
+        ptr = ptr + (1);
+        *ptr = *ptr + 1;
+    }
+}
+						</code></pre>			
+					</section>
+					<section>
+					    <h2>Ordering</h2>
+						<p>Collapse multi dim arrays</p>
+			        </section>
+					<section>
+					    <h2>Z-Ordering</h2>
+						<img src="img/zorder.png"/>
+			        </section>
+					<section>
+						<h2>Mutate strings in place</h2>
+						<code><pre>			
+unsafe
+{
+    fixed (char* c = str)
+    {
+        for (char* p = c; *p != 0; p++)
+        {
+            *p = char.ToUpper(*p);
+        }
+    }
+}
+						</code></pre>	
+					</section>
+					<section>
+					    <h2>Aligment and ^2 Aligment</h2>
+			            <p>mind = blown</p>
+			        </section>
+				</section>
+				<section id="credits">
+					<h2>Thank you!</h2>
+					<p>Bartosz Adamczewski</p>
+					<p>
+						<a href="https://twitter.com/Scooletz">@badamczewski01</a>
+					</p>
+				</section>
+			</div>
+		</div>
+		
+		<script src="lib/js/head.min.js"></script>
+		<script src="js/reveal.min.js"></script>
+		<script>
+			// Full list of configuration options available here:
+			// https://github.com/hakimel/reveal.js#configuration
+			Reveal.initialize({
+				controls: true,
+				progress: true,
+				history: true,
+				center: true,
+				transition: 'slide',
+
+				theme: Reveal.getQueryHash().theme, // available themes are in /css/theme
+				transition: Reveal.getQueryHash().transition || 'fade', // default/cube/page/concave/zoom/linear/fade/none
+
+				// Parallax scrolling
+				// parallaxBackgroundImage: 'https://s3.amazonaws.com/hakim-static/reveal-js/reveal-parallax-1.jpg',
+				// parallaxBackgroundSize: '2100px 900px',
+
+				// Optional libraries used to extend on reveal.js
+				dependencies: [
+					{ src: 'lib/js/classList.js', condition: function() { return !document.body.classList; } },
+					{ src: 'plugin/markdown/marked.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/markdown/markdown.js', condition: function() { return !!document.querySelector( '[data-markdown]' ); } },
+					{ src: 'plugin/highlight/highlight.js', async: true, callback: function() { hljs.initHighlightingOnLoad(); } },
+					{ src: 'plugin/zoom-js/zoom.js', async: true, condition: function() { return !!document.body.classList; } },
+					{ src: 'plugin/notes/notes.js', async: true, condition: function() { return !!document.body.classList; } }
+				]
+			});
+
+		</script>
+	</body>
+</html>
